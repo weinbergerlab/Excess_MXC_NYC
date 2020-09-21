@@ -1,0 +1,237 @@
+---
+title: "Excess death in Mexico City and NYC"
+author: "Dan Weinberger"
+date: "9/21/2020"
+output:
+  html_document:
+    df_print: paged
+    html_document: null
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  word_document:
+    toc: yes
+    toc_depth: '2'
+  pdf_document: 
+    keep_tex:  true
+params:
+  agg.level: 'state'
+  n.days.filter: 20
+  web.version: FALSE
+  extrap.date: '2020-01-26'
+  count.start.date: '2020-03-01'
+  end.data.date: '2020-09-05'
+---
+
+```{r, include = F}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  echo=F,
+  warning=FALSE, 
+  message=FALSE,
+  comment = "#>",
+  dev=c('png','pdf'),
+  fig.path='./figures/',
+  gganimate = list(
+    nframes = 50)
+)
+
+extrap.date <-  as.Date(params$extrap.date)
+count.start.date <- as.Date(params$count.start.date)
+end.data.date <- as.Date(params$end.data.date)
+
+state.name2 <- c(state.name, 'District of Columbia','Puerto Rico', 'United States', 'New York City')
+state.abb2 <- c(state.abb, 'DC','PR','US','NYC')
+
+
+last.date.format <- 
+  format(end.data.date, '%b %d, %Y')
+```
+
+```{r setup}
+library(ExcessILI)
+library(cdcfluview)
+library(reshape2)
+library(ggplot2)
+library(lubridate)
+library(RColorBrewer)
+library(plotly)
+library(MMWRweek)
+library(readr)
+library(rjson)
+library(htmlTable)
+library(RSocrata)
+library(pdftools)
+library(readr)
+library(abind)
+library(gsubfn)
+library(dplyr)
+library(RCurl)
+library(gifski)
+library(gganimate)
+#library(jsonlite)
+set.seed(123)
+source('./functions/ts_plot_func.R')
+source('./functions/format_table.R')
+source('./functions/stack_plot.R')
+
+```
+
+```{r archivfunc}
+# Using ExcessILI's data archiving functions, returns the most recent copy of
+# output obtained by running a function or formula \code{f}, unless this 
+# copy doesn't exist or is older (by modification time) than \code{maxage}.
+# In that case, \code{f} is run and the output is archived into the folder
+# Data/'storeName' as an RDS file, using the function ExcessILI::storeRDS.
+#
+# @param storeName A string. The name of the folder to store output in
+# @param f A function or formula taking no arguments. Formulas are coerced to
+#   functions.
+# @param maxage How old can any existing archived file be before \code{f} is 
+#   called again?
+runIfExpired <- function(storeName, f, maxage=hours(99999999999999)) {
+  basepath <- "Data/"
+  mostRecent <- mostRecentTimestamp(storeName, basepath=basepath)
+  f <- rlang::as_function(f)
+  
+  runAndArchive <- function() {
+    data <- f()
+    storeRDS(data, storeName, basepath)
+    data
+  }
+    
+  if (is.na(mostRecent)) 
+    return(runAndArchive())
+
+  if (mostRecent %--% now() < maxage)
+    return(retrieveRDS(storeName, basepath))
+
+  runAndArchive()
+}
+```
+
+```{r, eval=F}
+if (!require("devtools")) {
+  install.packages("devtools")
+}
+devtools::install_github("weinbergerlab/ExcessILI")
+```
+
+```{r}
+nchs.base1.data <-
+  read.csv('./Data/nchs_base1_data/Weekly_Counts_of_Deaths_by_State_and_Select_Causes__2014-2018.csv')
+
+nchs.base1.data <-
+  nchs.base1.data[,c("Jurisdiction.of.Occurrence","MMWR.Year" ,"MMWR.Week" , "Week.Ending.Date","All..Cause","flag_allcause")]
+
+names(nchs.base1.data) <-c('state', 'year','week','week_end','all_cause', 'flag_ac')
+
+csv.url <- "https://data.cdc.gov/api/views/r8kw-7aab/rows.csv?accessType=DOWNLOAD"
+ds.func <- function(url){
+  ds1<- read.csv("https://data.cdc.gov/api/views/r8kw-7aab/rows.csv?accessType=DOWNLOAD") 
+return(ds1)
+  }
+
+nchs.base2.data <- runIfExpired('nchs_base2_data', 
+ ~read.csv("https://data.cdc.gov/api/views/muzy-jte6/rows.csv?accessType=DOWNLOAD") 
+ )
+
+nchs.base2.data <- nchs.base2.data[,c("Jurisdiction.of.Occurrence" ,"Week.Ending.Date" ,"All.Cause")]
+
+names(nchs.base2.data) <- c("State","week_end", 'Total.Deaths'  )
+
+nchs.base2.data$Total.Deaths <-
+  as.numeric(nchs.base2.data$Total.Deaths)
+
+names(nchs.base2.data) <-c('state', 'week_end','all_cause')
+
+nchs.base2.data$week_end <- as.Date(nchs.base2.data$week_end, '%Y-%m-%d')
+
+
+nchs.base2.data$all_cause <-
+  as.numeric(nchs.base2.data$all_cause)
+
+nchs.base1.data$week_end <-
+  as.Date(nchs.base1.data$week_end, '%m/%d/%Y')
+
+nchs.base.comb <-
+  bind_rows(nchs.base1.data,nchs.base2.data)
+
+#Import the cdcfluview data
+pi.data <- runIfExpired('pi_mortality_state', ~pi_mortality(coverage_area='state'))
+
+pi.data <- pi.data[pi.data$coverage_area=='state',c('week_end','all_deaths' ,'region_name')]
+names(pi.data) <-c('week_end',"all_deaths",'region_name')
+
+fluview <- pi.data
+
+```
+
+Restrict to NYC
+```{r}
+
+nyc.fluview <- fluview[fluview$region_name=='New York City',]
+nyc.fluview <-
+  nyc.fluview[order(nyc.fluview$week_end),]
+nyc.fluview$state <- 'NYC_loc_death'
+nyc.fluview <- nyc.fluview[,c('state','week_end', 'all_deaths')]
+names(nyc.fluview) <- c('state','week_end', 'all_cause')
+
+nyc.nchs <- nchs.base.comb[nchs.base.comb$state=='New York City',]
+nyc.nchs$state <- 'NYC_loc_res'
+nyc.nchs <- nyc.nchs[,c('state','week_end', 'all_cause')]
+#plot(nyc.nchs$week_end, nyc.nchs$all_cause)
+```
+
+Mexico data
+```{r}
+mx1 <- read.csv('./Data/Mx/cdmx_ts_format.csv')
+mx1$state <- 'MXC'
+mx1$DATE <- as.Date(mx1$DATE)
+mx1$week_end <- floor_date(mx1$DATE, unit='week')+6
+mx2 <- aggregate(mx1$DEATH, by=list('week_end'=mx1$week_end, 'state'=mx1$state), FUN=sum)
+
+mx2 <- mx2[,c('state','week_end','x')]
+names(mx2) <- c('state','week_end', 'all_cause')
+```
+
+
+## Combine the datasets
+```{r}
+
+ds.comb <- rbind.data.frame(mx2,nyc.nchs, nyc.fluview)
+ds.comb$one <- 1
+ds.comb <- ds.comb[ds.comb$week_end >= as.Date('2017-01-08') & ds.comb$week_end <= as.Date('2020-08-31') ,]
+
+ds.comb <- ds.comb[order(ds.comb$state, ds.comb$week_end),]
+```
+
+
+```{r}
+plot(ds.comb$week_end, ds.comb$all_cause, col=as.factor(ds.comb$state))
+```
+
+
+## run the model
+```{r}
+
+mod1 <- excessCases(ds.comb, 
+             statevar = "state",
+             datevar = "week_end", 
+             use.syndromes = c("all_cause"),
+            extrapolation.date = as.Date("2020-03-01"), 
+            sum.dates = as.Date("2020-03-01"),
+            denom.var = "one",
+            extend.epiyear =TRUE,
+            time.res='week',
+            model.type='negbin') 
+```
+
+```{r}
+
+```
+
+
+
+
+
