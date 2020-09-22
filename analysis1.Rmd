@@ -185,30 +185,59 @@ nyc.nchs <- nyc.nchs[,c('state','week_end', 'all_cause')]
 
 Mexico data
 ```{r}
-mx1 <- read.csv('./Data/Mx/cdmx_ts_format.csv')
-mx1$state <- 'MXC'
-mx1$DATE <- as.Date(mx1$DATE)
-mx1$week_end <- floor_date(mx1$DATE, unit='week')+6
-mx2 <- aggregate(mx1$DEATH, by=list('week_end'=mx1$week_end, 'state'=mx1$state), FUN=sum)
+#this is same as the disaggregated data below
 
-mx2 <- mx2[,c('state','week_end','x')]
-names(mx2) <- c('state','week_end', 'all_cause')
+# mx1 <- read.csv('./Data/Mx/cdmx_ts_format.csv')
+# mx1$state <- 'MXC_all'
+# mx1$DATE <- as.Date(mx1$DATE)
+# mx1$week_end <- floor_date(mx1$DATE, unit='week')+6
+# mx2 <- aggregate(mx1$DEATH, by=list('week_end'=mx1$week_end, 'state'=mx1$state), FUN=sum)
+# mx2 <- mx2[,c('state','week_end','x')]
+# names(mx2) <- c('state','week_end', 'all_cause')
+```
+
+Mexico, age stratified
+```{r}
+mx1.age <- read.csv('./Data/Mx/cdmx_age_ts_format.csv')
+mx1.age$state <- paste0('MXC_', mx1.age$agegrp)
+mx1.age <- mx1.age[mx1.age$RESIDENCY_STATE=='CDMX',]
+mx1.age$DATE <- as.Date(mx1.age$DATE)
+mx1.age$week_end <- floor_date(mx1.age$DATE, unit='week')+6
+mx2.age <- aggregate(mx1.age$DEATH, by=list('week_end'=mx1.age$week_end, 'state'=mx1.age$state), FUN=sum)
+mx2.age <- mx2.age[,c('state','week_end','x')]
+names(mx2.age) <- c('state','week_end', 'all_cause')
+```
+
+MX all ages, by residency
+```{r}
+mx1.all.res <- mx1.age
+mx1.all.res$state <- 'MXC_res'
+mx2.all.res <- aggregate(mx1.all.res$DEATH, by=list('week_end'=mx1.all.res$week_end,'state'=mx1.all.res$state), FUN=sum)
+mx2.all.res <- mx2.all.res[,c('state','week_end','x')]
+names(mx2.all.res) <- c('state','week_end', 'all_cause')
+```
+
+MX all ages, by loc of death
+```{r}
+mx1.all <- read.csv('./Data/Mx/cdmx_age_ts_format.csv')
+mx1.all$DATE <- as.Date(mx1.all$DATE)
+mx1.all$week_end <- floor_date(mx1.all$DATE, unit='week')+6
+mx1.all.loc <- mx1.all
+mx1.all.loc$state <- 'MXC_loc_death'
+mx2.all.loc <- aggregate(mx1.all.loc$DEATH, by=list('week_end'=mx1.all.loc$week_end,'state'=mx1.all.loc$state), FUN=sum)
+mx2.all.loc <- mx2.all.loc[,c('state','week_end','x')]
+names(mx2.all.loc) <- c('state','week_end', 'all_cause')
 ```
 
 
 ## Combine the datasets
 ```{r}
 
-ds.comb <- rbind.data.frame(mx2,nyc.nchs, nyc.fluview)
+ds.comb <- rbind.data.frame(mx2.all.res,mx2.all.loc,mx2.age,nyc.nchs, nyc.fluview)
 ds.comb$one <- 1
 ds.comb <- ds.comb[ds.comb$week_end >= as.Date('2017-01-08') & ds.comb$week_end <= as.Date('2020-08-31') ,]
 
 ds.comb <- ds.comb[order(ds.comb$state, ds.comb$week_end),]
-```
-
-
-```{r}
-plot(ds.comb$week_end, ds.comb$all_cause, col=as.factor(ds.comb$state))
 ```
 
 
@@ -226,10 +255,102 @@ mod1 <- excessCases(ds.comb,
             time.res='week',
             model.type='negbin') 
 ```
-
+ Extract output
 ```{r}
+ds <- mod1
+dates1 <-
+  ds[[1]][[1]][[1]]$date
+  
+sum.obs.ac <-
+    excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "sum.obs")
+
+sum.obs.ac2 <- apply(sum.obs.ac,2, sum)
+
+denom.check <-
+    excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "denom")
+
+dispersion <-
+    excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "disp")
+
+##National data is created by summing state data
+sum.pred.iter.ac <-    
+  excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "sum.pred.iter")
+
+excess.grp <- matrix(NA, nrow=dim(sum.pred.iter.ac)[1], ncol=length(sum.obs.ac2))
+
+for(i in 1:length(sum.obs.ac2)){
+ excess.grp[,i] <-  sum.obs.ac2[i] - sum.pred.iter.ac[,i,1]
+}
+excess.grp.q <- t(apply(excess.grp,2, quantile, probs=c(0.025,0.5, 0.975)))
+excess.grp.q <- cbind.data.frame('group'=dimnames(sum.obs.ac)[[2]],excess.grp.q)
+
+ac.nat.obs <-    
+  excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "y")
+ac.nat.obs <- ac.nat.obs[,dimnames(ac.nat.obs)[[2]]!='US',1]
+
+pred.iter.ac <-    
+  excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "pred.iter")
+
+pred.iter.ac2 <- array(pred.iter.ac,dim=c(length(dates1),10000,dim(pred.iter.ac)[2],1 ))
+
+dimnames(pred.iter.ac2)[[3]] <- dimnames(pred.iter.ac)[[2]]
+
+pred.ac.q <- apply(pred.iter.ac2, c(1,3), quantile, probs=c(0.025, 0.5, 0.975))
+
+
+#excessN.iter <- sum.pred.iter.ac
 
 ```
+
+## Summary of excess deaths March 1-Aug 29
+```{r}
+excess.grp.q.rd <- excess.grp.q
+excess.grp.q.rd[,-1] <- apply(excess.grp.q[-1],2, function(x) round(x,-2))
+
+outtab1 <- paste0(excess.grp.q.rd[,3], ' (', excess.grp.q.rd[,2],', ', excess.grp.q.rd[,4],')' )
+outtab1 <- cbind.data.frame(excess.grp.q.rd[,1],outtab1)
+htmlTable(outtab1)
+```
+
+## Compare NYC and MXC, based on location of death
+```{r}
+plot(dates1,pred.ac.q['50%',,'MXC_loc_death'], bty='l',type='l', col='red', ylim=c(0, 8000), lty=2, ylab='Deaths(N)')
+polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,'MXC_loc_death'], rev(pred.ac.q['97.5%',,'MXC_loc_death'])),border=NA, col=rgb(1,0,0,alpha=0.2) )
+points(dates1, ac.nat.obs[,'MXC_loc_death'], type='l', col='red')
+
+#Overlay NYC
+polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,"NYC_loc_death"], rev(pred.ac.q['97.5%',,"NYC_loc_death"])),border=NA, col=rgb(0,0,1,alpha=0.2) )
+points(dates1, ac.nat.obs[,"NYC_loc_death"], type='l', col='blue')
+points(dates1, pred.ac.q['50%',,"NYC_loc_death"], col='blue', lty=2, type='l')
+
+```
+
+## Compare NYC and MXC, based on residence.
+Important note: for NYC, if someone dies in another state but is resident in NYC, it will get added to NYC total. Not sure if same is true in MX data
+```{r}
+plot(dates1,pred.ac.q['50%',,'MXC_res'], bty='l',type='l', col='red', ylim=c(0, 8000), lty=2, ylab='Deaths(N)')
+polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,'MXC_res'], rev(pred.ac.q['97.5%',,'MXC_res'])),border=NA, col=rgb(1,0,0,alpha=0.2) )
+points(dates1, ac.nat.obs[,'MXC_res'], type='l', col='red')
+
+#Overlay NYC
+polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,"NYC_loc_res"], rev(pred.ac.q['97.5%',,"NYC_loc_res"])),border=NA, col=rgb(0,0,1,alpha=0.2) )
+points(dates1, ac.nat.obs[,"NYC_loc_res"], type='l', col='blue')
+points(dates1, pred.ac.q['50%',,"NYC_loc_res"], col='blue', lty=2, type='l')
+
+```
+
 
 
 
