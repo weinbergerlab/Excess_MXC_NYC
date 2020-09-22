@@ -173,15 +173,36 @@ Restrict to NYC
 nyc.fluview <- fluview[fluview$region_name=='New York City',]
 nyc.fluview <-
   nyc.fluview[order(nyc.fluview$week_end),]
-nyc.fluview$state <- 'NYC_loc_death'
+nyc.fluview$state <- 'NYC_loc_res'
 nyc.fluview <- nyc.fluview[,c('state','week_end', 'all_deaths')]
 names(nyc.fluview) <- c('state','week_end', 'all_cause')
 
 nyc.nchs <- nchs.base.comb[nchs.base.comb$state=='New York City',]
-nyc.nchs$state <- 'NYC_loc_res'
+nyc.nchs$state <- 'NYC_loc_death'
 nyc.nchs <- nyc.nchs[,c('state','week_end', 'all_cause')]
 #plot(nyc.nchs$week_end, nyc.nchs$all_cause)
 ```
+
+NYC age
+```{r}
+#https://data.cdc.gov/NCHS/Weekly-counts-of-deaths-by-jurisdiction-and-age-gr/y5bj-9g5w/
+#by jurisdiction of occurrence
+
+ny.age1 <- read.csv('./Data/nchs_age/Weekly_counts_of_deaths_by_jurisdiction_and_age_group.csv')
+ny.age1 <- ny.age1[ny.age1$State.Abbreviation=='YC' & ny.age1$Type=='Unweighted',]
+ny.age1 <- ny.age1[,c('Week.Ending.Date', 'Age.Group','Number.of.Deaths' )]
+ny.age1$Week.Ending.Date <- as.Date(ny.age1$Week.Ending.Date, '%m/%d/%Y')
+ny.age1$agegroup2 <- NA
+ny.age1$agegroup2[ny.age1$Age.Group %in% c('Under 25 years','25-44 years')] <- "00-44Y"
+ny.age1$agegroup2[ny.age1$Age.Group %in% c('45-64 years')] <- "45-64Y"
+ny.age1$agegroup2[ny.age1$Age.Group %in% c('65-74 years','75-84 years','85 years and older' )] <- "65+Y"
+ny.age1$state <- paste0('NYC_loc_death_', ny.age1$agegroup2)
+ny.age2 <- aggregate(ny.age1[,c('Number.of.Deaths'), drop=F],
+                     by=list('state'=ny.age1$state,'week_end'=ny.age1$Week.Ending.Date), FUN=sum)
+names(ny.age2) <-c('state','week_end','all_cause')
+
+```
+
 
 Mexico data
 ```{r}
@@ -206,6 +227,7 @@ mx1.age$week_end <- floor_date(mx1.age$DATE, unit='week')+6
 mx2.age <- aggregate(mx1.age$DEATH, by=list('week_end'=mx1.age$week_end, 'state'=mx1.age$state), FUN=sum)
 mx2.age <- mx2.age[,c('state','week_end','x')]
 names(mx2.age) <- c('state','week_end', 'all_cause')
+
 ```
 
 MX all ages, by residency
@@ -233,7 +255,7 @@ names(mx2.all.loc) <- c('state','week_end', 'all_cause')
 ## Combine the datasets
 ```{r}
 
-ds.comb <- rbind.data.frame(mx2.all.res,mx2.all.loc,mx2.age,nyc.nchs, nyc.fluview)
+ds.comb <- rbind.data.frame(mx2.all.res,mx2.all.loc,mx2.age,nyc.nchs, nyc.fluview,ny.age2)
 ds.comb$one <- 1
 ds.comb <- ds.comb[ds.comb$week_end >= as.Date('2017-01-08') & ds.comb$week_end <= as.Date('2020-08-31') ,]
 
