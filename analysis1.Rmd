@@ -220,7 +220,7 @@ Mexico data
 Mexico, age stratified
 ```{r}
 mx1.age <- read.csv('./Data/Mx/cdmx_age_ts_format.csv')
-mx1.age$state <- paste0('MXC_', mx1.age$agegrp)
+mx1.age$state <- paste0('MXC_res_', mx1.age$agegrp)
 mx1.age <- mx1.age[mx1.age$RESIDENCY_STATE=='CDMX',]
 mx1.age$DATE <- as.Date(mx1.age$DATE)
 mx1.age$week_end <- floor_date(mx1.age$DATE, unit='week')+6
@@ -373,6 +373,64 @@ points(dates1, pred.ac.q['50%',,"NYC_loc_res"], col='blue', lty=2, type='l')
 
 ```
 
+
+## reshap to year*week
+```{r}
+
+mmw1 <- MMWRweek(ds.comb$week_end)
+ds.comb <- cbind.data.frame(ds.comb, mmw1)
+
+obs.m <- melt(ds.comb[,c('state', 'all_cause',"MMWRyear", "MMWRweek")], id.vars =c('state', "MMWRyear", "MMWRweek") )
+obs.c <- acast(obs.m, state ~  MMWRyear ~ MMWRweek )
+```
+
+
+```{r}
+col1 <- '#e41a1c'
+col1.t <- '#e41a1c4D'
+col2 <- '#377eb8'
+col2.t <- '#377eb84D'
+```
+
+Panels
+```{r}
+
+par(mfrow=c(2,2))
+
+groups.to.test<- list(
+  c('MXC_res', 'NYC_loc_death'),
+  c('MXC_res_00-44Y', 'NYC_loc_death_00-44Y'),
+  c('MXC_res_45-64Y', 'NYC_loc_death_45-64Y'),
+  c('MXC_res_65+Y', 'NYC_loc_death_65+Y')
+)
+
+lab1 <- c('All ages','0-44y','45-64y','65+y')
+
+denoms <- list(
+  c(9031213,8398748),
+  c(5872023,5096607),
+  c(2194170,2056048),
+  c(965020,1246093)
+)
+
+#Panel A
+
+for(i in c(1:4)){
+  yrange <- range( c(obs.c[groups.to.test[[i]][1],c('2020'),]/denoms[[i]][1]*100000, obs.c[groups.to.test[[i]][2],c('2020'),]/denoms[[i]][2]*100000), na.rm=T )
+matplot(t(obs.c[groups.to.test[[i]][1],c('2017','2018','2019'),])/denoms[[i]][1]*100000, bty='l',type='l', col=col1.t, 
+        ylim=c(0, yrange[2]),
+        xlim=c(1,35),
+        lty=1, ylab='Deaths(N)', main=lab1[i])
+points(obs.c[groups.to.test[[i]][1],c('2020'),]/denoms[[i]][1]*100000, type='l', col=col1, lty=1, lwd=2)
+
+matplot(t(obs.c[groups.to.test[[i]][2],c('2017','2018','2019'),])/denoms[[i]][2]*100000, bty='l',type='l', col=col2.t,  lty=1, ylab='Deaths(N)', add=T)
+points(obs.c[groups.to.test[[i]][2],c('2020'),]/denoms[[i]][2]*100000, type='l', col=col2, lty=1, lwd=2)
+
+}
+
+
+
+```
 
 
 
