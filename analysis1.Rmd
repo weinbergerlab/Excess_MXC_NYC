@@ -420,10 +420,10 @@ for(i in c(1:4)){
 matplot(t(obs.c[groups.to.test[[i]][1],c('2017','2018','2019'),])/denoms[[i]][1]*100000, bty='l',type='l', col=col1.t, 
         ylim=c(0, yrange[2]),
         xlim=c(1,35),
-        lty=1, ylab='Deaths(N)', main=lab1[i])
+        lty=1, ylab='Deaths/100,000', main=lab1[i])
 points(obs.c[groups.to.test[[i]][1],c('2020'),]/denoms[[i]][1]*100000, type='l', col=col1, lty=1, lwd=2)
 
-matplot(t(obs.c[groups.to.test[[i]][2],c('2017','2018','2019'),])/denoms[[i]][2]*100000, bty='l',type='l', col=col2.t,  lty=1, ylab='Deaths(N)', add=T)
+matplot(t(obs.c[groups.to.test[[i]][2],c('2017','2018','2019'),])/denoms[[i]][2]*100000, bty='l',type='l', col=col2.t,  lty=1,  add=T)
 points(obs.c[groups.to.test[[i]][2],c('2020'),]/denoms[[i]][2]*100000, type='l', col=col2, lty=1, lwd=2)
 
 }
