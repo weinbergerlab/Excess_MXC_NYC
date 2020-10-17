@@ -1,7 +1,7 @@
 ---
 title: "Excess death in Mexico City and NYC"
 author: "Dan Weinberger"
-date: "9/21/2020"
+date: "10/17/2020"
 output:
   html_document:
     df_print: paged
@@ -50,6 +50,7 @@ last.date.format <-
 
 ```{r setup}
 library(ExcessILI)
+library(readxl)
 library(cdcfluview)
 library(reshape2)
 library(ggplot2)
@@ -203,6 +204,59 @@ names(ny.age2) <-c('state','week_end','all_cause')
 
 ```
 
+NYC data from DOHMH
+A)      All deaths that occurred within New York City, regardless of the decedent’s place of residence -- this includes both all NYC residents and persons who have residence outside of NYC; I believe this fits the definition for the data in your LEFT panel in Supp Fig B, and I think it should be very close to the data you’re showing currently in the figure.
+
+B)      All deaths that occurred in NYC among ONLY NYC residents – I believe this fits the definition for the data in your RIGHT panel in Supp Fig B for Mexico City; I believe the data you are currently showing in that panel for NYC includes all deaths that occurred in NYC among NYC residents and ALSO all deaths reported in other US states that were among NYC residents. I think this explains why the MXC deaths in the LEFT panel are greater than the MXC deaths in the RIGHT panel, while the NYC deaths in the LEFT are lower than in the RIGHT panel.
+```{r}
+
+nyc.dh.all <- read_excel('./Data/NYC_DOHMH/wkly_AC_3ages_res.xlsx', sheet='tot')
+nyc.dh.all.m <- melt(nyc.dh.all,id.vars=c('weekend', 'week'))
+nyc.dh.all.m$week <- NULL
+nyc.dh.all.m$state <- NA
+nyc.dh.all.m$state[nyc.dh.all.m$variable=='age1'] <-
+  'NYC_DOH_loc_00-44y'
+nyc.dh.all.m$state[nyc.dh.all.m$variable=='age2'] <-
+  'NYC_DOH_loc_45-64y'
+nyc.dh.all.m$state[nyc.dh.all.m$variable=='age3'] <-
+  'NYC_DOH_loc_65+Y'
+
+nyc.dh.all.m <- 
+  nyc.dh.all.m[,c('state','weekend','value')]
+
+names(nyc.dh.all.m) <- c('state', 'week_end', 'all_cause')
+
+nyc.dh.all.m.agg <- aggregate(nyc.dh.all.m[,'all_cause',drop=F], by=list('week_end'=nyc.dh.all.m$week_end), FUN=sum )
+
+nyc.dh.all.m.agg$state = 'NYC_DOH_loc_all_age'
+
+nyc.dh.all.m <- bind_rows(nyc.dh.all.m,nyc.dh.all.m.agg)
+
+#by location of residence
+nyc.dh.res <- read_excel('./Data/NYC_DOHMH/wkly_AC_3ages_res.xlsx', sheet='res')
+
+nyc.dh.res.m <- melt(nyc.dh.res,id.vars=c('weekend', 'week'))
+nyc.dh.res.m$week <- NULL
+nyc.dh.res.m$state <- NA
+nyc.dh.res.m$state[nyc.dh.res.m$variable=='age1'] <-
+  'NYC_DOH_res_00-44y'
+nyc.dh.res.m$state[nyc.dh.res.m$variable=='age2'] <-
+  'NYC_DOH_res_45-64y'
+nyc.dh.res.m$state[nyc.dh.res.m$variable=='age3'] <-
+  'NYC_DOH_res_65+Y'
+
+nyc.dh.res.m <- 
+  nyc.dh.res.m[,c('state','weekend','value')]
+
+names(nyc.dh.res.m) <- c('state', 'week_end', 'all_cause')
+
+nyc.dh.res.m.agg <- aggregate(nyc.dh.res.m[,'all_cause',drop=F], by=list('week_end'=nyc.dh.res.m$week_end), FUN=sum )
+
+nyc.dh.res.m.agg$state = 'NYC_DOH_res_all_age'
+
+nyc.dh.res.m <- bind_rows(nyc.dh.res.m,nyc.dh.res.m.agg)
+```
+
 
 Mexico data
 ```{r}
@@ -255,7 +309,7 @@ names(mx2.all.loc) <- c('state','week_end', 'all_cause')
 ## Combine the datasets
 ```{r}
 
-ds.comb <- rbind.data.frame(mx2.all.res,mx2.all.loc,mx2.age,nyc.nchs, nyc.fluview,ny.age2)
+ds.comb <- rbind.data.frame(mx2.all.res,mx2.all.loc,mx2.age,nyc.nchs, nyc.fluview,ny.age2,nyc.dh.res.m,nyc.dh.all.m )
 ds.comb$one <- 1
 ds.comb <- ds.comb[ds.comb$week_end >= as.Date('2017-01-08') & ds.comb$week_end <= as.Date('2020-08-31') ,]
 
@@ -353,9 +407,9 @@ polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,'MXC_loc_death'], rev(pred.a
 points(dates1, ac.nat.obs[,'MXC_loc_death'], type='l', col='red')
 
 #Overlay NYC
-polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,"NYC_loc_death"], rev(pred.ac.q['97.5%',,"NYC_loc_death"])),border=NA, col=rgb(0,0,1,alpha=0.2) )
-points(dates1, ac.nat.obs[,"NYC_loc_death"], type='l', col='blue')
-points(dates1, pred.ac.q['50%',,"NYC_loc_death"], col='blue', lty=2, type='l')
+polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,"NYC_DOH_loc_all_age"], rev(pred.ac.q['97.5%',,"NYC_DOH_loc_all_age"])),border=NA, col=rgb(0,0,1,alpha=0.2) )
+points(dates1, ac.nat.obs[,"NYC_DOH_loc_all_age"], type='l', col='blue')
+points(dates1, pred.ac.q['50%',,"NYC_DOH_loc_all_age"], col='blue', lty=2, type='l')
 
 ```
 
@@ -367,11 +421,25 @@ polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,'MXC_res'], rev(pred.ac.q['9
 points(dates1, ac.nat.obs[,'MXC_res'], type='l', col='red')
 
 #Overlay NYC
-polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,"NYC_loc_res"], rev(pred.ac.q['97.5%',,"NYC_loc_res"])),border=NA, col=rgb(0,0,1,alpha=0.2) )
-points(dates1, ac.nat.obs[,"NYC_loc_res"], type='l', col='blue')
-points(dates1, pred.ac.q['50%',,"NYC_loc_res"], col='blue', lty=2, type='l')
+polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,"NYC_DOH_res_all_age"], rev(pred.ac.q['97.5%',,"NYC_DOH_res_all_age"])),border=NA, col=rgb(0,0,1,alpha=0.2) )
+points(dates1, ac.nat.obs[,"NYC_DOH_res_all_age"], type='l', col='blue')
+points(dates1, pred.ac.q['50%',,"NYC_DOH_res_all_age"], col='blue', lty=2, type='l')
 
 ```
+
+## Compare NCHS and NYCDOHMH
+```{r, fig.width=8,fig.height=3}
+
+par(mfrow=c(1,2))
+plot(ac.nat.obs[,"NYC_DOH_res_all_age"], col='red', type='l', bty='l', main='Loc Residence')
+points(ac.nat.obs[,"NYC_loc_res"], col='blue', type='l')
+
+
+plot(ac.nat.obs[,"NYC_DOH_loc_all_age"], col=rgb(1,0,0,alpha=0.5), type='l', bty='l', lty=2, main='Loc Death')
+points(ac.nat.obs[,"NYC_loc_death"], col=rgb(0,0,1,alpha=0.5), type='l', lty=2)
+
+```
+
 
 
 ## reshap to year*week
@@ -382,6 +450,9 @@ ds.comb <- cbind.data.frame(ds.comb, mmw1)
 
 obs.m <- melt(ds.comb[,c('state', 'all_cause',"MMWRyear", "MMWRweek")], id.vars =c('state', "MMWRyear", "MMWRweek") )
 obs.c <- acast(obs.m, state ~  MMWRyear ~ MMWRweek )
+
+obs.c.out <- dcast(obs.m,   MMWRyear + MMWRweek ~state)
+write.csv(obs.c.out, './Data/formatted.csv' )
 ```
 
 
@@ -398,10 +469,10 @@ Panels
 par(mfrow=c(2,2))
 
 groups.to.test<- list(
-  c('MXC_res', 'NYC_loc_death'),
-  c('MXC_res_00-44Y', 'NYC_loc_death_00-44Y'),
-  c('MXC_res_45-64Y', 'NYC_loc_death_45-64Y'),
-  c('MXC_res_65+Y', 'NYC_loc_death_65+Y')
+  c('MXC_res', 'NYC_DOH_res_all_age'),
+  c('MXC_res_00-44Y', 'NYC_DOH_res_00-44y'),
+  c('MXC_res_45-64Y', 'NYC_DOH_res_45-64y'),
+  c('MXC_res_65+Y', 'NYC_DOH_res_65+Y')
 )
 
 lab1 <- c('All ages','0-44y','45-64y','65+y')
