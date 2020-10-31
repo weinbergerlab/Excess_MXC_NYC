@@ -1,7 +1,7 @@
 ---
 title: "Excess death in Mexico City and NYC"
 author: "Dan Weinberger"
-date: "10/17/2020"
+date: "10/29/2020"
 output:
   html_document:
     df_print: paged
@@ -464,7 +464,7 @@ col2.t <- '#377eb84D'
 ```
 
 Panels
-```{r}
+```{r main.fig, fig.width=6,fig.height=4}
 
 par(mfrow=c(2,2))
 
@@ -496,6 +496,38 @@ points(obs.c[groups.to.test[[i]][1],c('2020'),]/denoms[[i]][1]*100000, type='l',
 
 matplot(t(obs.c[groups.to.test[[i]][2],c('2017','2018','2019'),])/denoms[[i]][2]*100000, bty='l',type='l', col=col2.t,  lty=1,  add=T)
 points(obs.c[groups.to.test[[i]][2],c('2020'),]/denoms[[i]][2]*100000, type='l', col=col2, lty=1, lwd=2)
+
+}
+
+
+
+```
+## Counts
+```{r count.fig, fig.width=6,fig.height=4}
+
+par(mfrow=c(1,1))
+
+groups.to.test<- list(
+  c('MXC_res', 'NYC_DOH_res_all_age')
+  )
+
+
+lab1 <- c('All ages')
+
+
+
+#Panel A
+
+for(i in c(1)){
+  yrange <- range( c(obs.c[groups.to.test[[i]][1],c('2020'),], obs.c[groups.to.test[[i]][2],c('2020'),]), na.rm=T )
+matplot(t(obs.c[groups.to.test[[i]][1],c('2017','2018','2019'),]), bty='l',type='l', col=col1.t, 
+        ylim=c(0, yrange[2]),
+        xlim=c(1,35),
+        lty=1, ylab='Deaths (N)')
+points(obs.c[groups.to.test[[i]][1],c('2020'),], type='l', col=col1, lty=1, lwd=2)
+
+matplot(t(obs.c[groups.to.test[[i]][2],c('2017','2018','2019'),]), bty='l',type='l', col=col2.t,  lty=1,  add=T)
+points(obs.c[groups.to.test[[i]][2],c('2020'),], type='l', col=col2, lty=1, lwd=2)
 
 }
 
