@@ -533,6 +533,9 @@ points(obs.c[groups.to.test[[i]][2],c('2020'),]/denoms[[i]][2]*100000, type='l',
 ## Counts
 ```{r count.fig, fig.width=6,fig.height=4}
 
+dates2020 <- seq.Date(from=as.Date('2020-01-04'), by='week', length.out=52)
+dates2020 <- format(dates2020, '%b-%d')
+
 par(mfrow=c(1,1))
 
 groups.to.test<- list(
@@ -551,12 +554,17 @@ for(i in c(1)){
 matplot(t(obs.c[groups.to.test[[i]][1],c('2017','2018','2019'),]), bty='l',type='l', col=col1.t, 
         ylim=c(0, yrange[2]),
         xlim=c(1,35),
+        xaxt='n',
         lty=1, ylab='Deaths (N)')
 points(obs.c[groups.to.test[[i]][1],c('2020'),], type='l', col=col1, lty=1, lwd=2)
 
-matplot(t(obs.c[groups.to.test[[i]][2],c('2017','2018','2019'),]), bty='l',type='l', col=col2.t,  lty=1,  add=T)
+matplot(t(obs.c[groups.to.test[[i]][2],c('2017','2018','2019'),]), bty='l',type='l', col=col2.t,  lty=1,  add=T,xaxt='n')
 points(obs.c[groups.to.test[[i]][2],c('2020'),], type='l', col=col2, lty=1, lwd=2)
 
+axis(side=1,  at=seq(from=1,by=4, length.out=52), labels=FALSE) 
+
+text(x=seq(from=1,by=4, length.out=52)[1:9], y=par()$usr[3]-0.1*(par()$usr[4]-par()$usr[3]),
+labels=dates2020[seq(from=1,by=4, length.out=52)][1:9], srt=45, adj=1, xpd=TRUE)
 }
 
 
