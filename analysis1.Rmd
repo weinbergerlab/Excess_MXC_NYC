@@ -374,6 +374,26 @@ ac.nat.obs <-
                 extract.quantity = "y")
 ac.nat.obs <- ac.nat.obs[,dimnames(ac.nat.obs)[[2]]!='US',1]
 
+
+sum.pred.iter <-    
+  excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "sum.pred.iter")
+sum.obs <-
+    excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "sum.obs")
+sum.obs.state <- apply(sum.obs,2,sum)
+sum.cases.excess <- sapply(1:length(sum.obs.state),
+                           function(x){
+  sum.obs.state[x] -  sum.pred.iter[,x,1]
+  })
+
+sum.cases.excess.median <- apply(sum.cases.excess,2, median)
+sum.cases.excess.Var <- apply(sum.cases.excess,2, var)
+
+
+
 pred.iter.ac <-    
   excessExtract(ds = ds,
                 syndrome = 'all_cause',
@@ -399,6 +419,14 @@ outtab1 <- paste0(excess.grp.q.rd[,3], ' (', excess.grp.q.rd[,2],', ', excess.gr
 outtab1 <- cbind.data.frame(excess.grp.q.rd[,1],outtab1)
 htmlTable(outtab1)
 ```
+#Table with variances
+```{r}
+outtab2 <- cbind.data.frame(excess.grp.q.rd[,1],outtab1,
+                            sum.cases.excess.median, sum.cases.excess.Var)
+htmlTable(outtab2)
+write.csv(outtab2, 'outputs/summary_with_var.csv')
+```
+
 
 ## Compare NYC and MXC, based on location of death
 ```{r}
