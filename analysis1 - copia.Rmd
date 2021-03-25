@@ -1,0 +1,509 @@
+---
+title: "Excess death in Mexico City and NYC"
+author: "Dan Weinberger"
+date: "10/17/2020"
+output:
+  html_document:
+    df_print: paged
+    html_document: null
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  word_document:
+    toc: yes
+    toc_depth: '2'
+  pdf_document: 
+    keep_tex:  true
+params:
+  agg.level: 'state'
+  n.days.filter: 20
+  web.version: FALSE
+  extrap.date: '2020-01-26'
+  count.start.date: '2020-03-01'
+  end.data.date: '2020-09-05'
+---
+
+```{r, include = F}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  echo=F,
+  warning=FALSE, 
+  message=FALSE,
+  comment = "#>",
+  dev=c('png','pdf'),
+  fig.path='./figures/',
+  gganimate = list(
+    nframes = 50)
+)
+
+extrap.date <-  as.Date(params$extrap.date)
+count.start.date <- as.Date(params$count.start.date)
+end.data.date <- as.Date(params$end.data.date)
+
+state.name2 <- c(state.name, 'District of Columbia','Puerto Rico', 'United States', 'New York City')
+state.abb2 <- c(state.abb, 'DC','PR','US','NYC')
+
+
+last.date.format <- 
+  format(end.data.date, '%b %d, %Y')
+```
+
+```{r setup}
+library(ExcessILI)
+library(readxl)
+library(cdcfluview)
+library(reshape2)
+library(ggplot2)
+library(lubridate)
+library(RColorBrewer)
+library(plotly)
+library(MMWRweek)
+library(readr)
+library(rjson)
+library(htmlTable)
+library(RSocrata)
+library(pdftools)
+library(readr)
+library(abind)
+library(gsubfn)
+library(dplyr)
+library(RCurl)
+library(gifski)
+library(gganimate)
+#library(jsonlite)
+set.seed(123)
+source('./functions/ts_plot_func.R')
+source('./functions/format_table.R')
+source('./functions/stack_plot.R')
+
+```
+
+```{r archivfunc}
+# Using ExcessILI's data archiving functions, returns the most recent copy of
+# output obtained by running a function or formula \code{f}, unless this 
+# copy doesn't exist or is older (by modification time) than \code{maxage}.
+# In that case, \code{f} is run and the output is archived into the folder
+# Data/'storeName' as an RDS file, using the function ExcessILI::storeRDS.
+#
+# @param storeName A string. The name of the folder to store output in
+# @param f A function or formula taking no arguments. Formulas are coerced to
+#   functions.
+# @param maxage How old can any existing archived file be before \code{f} is 
+#   called again?
+runIfExpired <- function(storeName, f, maxage=hours(99999999999999)) {
+  basepath <- "Data/"
+  mostRecent <- mostRecentTimestamp(storeName, basepath=basepath)
+  f <- rlang::as_function(f)
+  
+  runAndArchive <- function() {
+    data <- f()
+    storeRDS(data, storeName, basepath)
+    data
+  }
+    
+  if (is.na(mostRecent)) 
+    return(runAndArchive())
+
+  if (mostRecent %--% now() < maxage)
+    return(retrieveRDS(storeName, basepath))
+
+  runAndArchive()
+}
+```
+
+```{r, eval=F}
+if (!require("devtools")) {
+  install.packages("devtools")
+}
+devtools::install_github("weinbergerlab/ExcessILI")
+```
+
+```{r}
+nchs.base1.data <-
+  read.csv('./Data/nchs_base1_data/Weekly_Counts_of_Deaths_by_State_and_Select_Causes__2014-2018.csv')
+
+nchs.base1.data <-
+  nchs.base1.data[,c("Jurisdiction.of.Occurrence","MMWR.Year" ,"MMWR.Week" , "Week.Ending.Date","All..Cause","flag_allcause")]
+
+names(nchs.base1.data) <-c('state', 'year','week','week_end','all_cause', 'flag_ac')
+
+csv.url <- "https://data.cdc.gov/api/views/r8kw-7aab/rows.csv?accessType=DOWNLOAD"
+ds.func <- function(url){
+  ds1<- read.csv("https://data.cdc.gov/api/views/r8kw-7aab/rows.csv?accessType=DOWNLOAD") 
+return(ds1)
+  }
+
+nchs.base2.data <- runIfExpired('nchs_base2_data', 
+ ~read.csv("https://data.cdc.gov/api/views/muzy-jte6/rows.csv?accessType=DOWNLOAD") 
+ )
+
+nchs.base2.data <- nchs.base2.data[,c("Jurisdiction.of.Occurrence" ,"Week.Ending.Date" ,"All.Cause")]
+
+names(nchs.base2.data) <- c("State","week_end", 'Total.Deaths'  )
+
+nchs.base2.data$Total.Deaths <-
+  as.numeric(nchs.base2.data$Total.Deaths)
+
+names(nchs.base2.data) <-c('state', 'week_end','all_cause')
+
+nchs.base2.data$week_end <- as.Date(nchs.base2.data$week_end, '%Y-%m-%d')
+
+
+nchs.base2.data$all_cause <-
+  as.numeric(nchs.base2.data$all_cause)
+
+nchs.base1.data$week_end <-
+  as.Date(nchs.base1.data$week_end, '%m/%d/%Y')
+
+nchs.base.comb <-
+  bind_rows(nchs.base1.data,nchs.base2.data)
+
+#Import the cdcfluview data
+pi.data <- runIfExpired('pi_mortality_state', ~pi_mortality(coverage_area='state'))
+
+pi.data <- pi.data[pi.data$coverage_area=='state',c('week_end','all_deaths' ,'region_name')]
+names(pi.data) <-c('week_end',"all_deaths",'region_name')
+
+fluview <- pi.data
+
+```
+
+Restrict to NYC
+```{r}
+
+nyc.fluview <- fluview[fluview$region_name=='New York City',]
+nyc.fluview <-
+  nyc.fluview[order(nyc.fluview$week_end),]
+nyc.fluview$state <- 'NYC_loc_res'
+nyc.fluview <- nyc.fluview[,c('state','week_end', 'all_deaths')]
+names(nyc.fluview) <- c('state','week_end', 'all_cause')
+
+nyc.nchs <- nchs.base.comb[nchs.base.comb$state=='New York City',]
+nyc.nchs$state <- 'NYC_loc_death'
+nyc.nchs <- nyc.nchs[,c('state','week_end', 'all_cause')]
+#plot(nyc.nchs$week_end, nyc.nchs$all_cause)
+```
+
+NYC age
+```{r}
+#https://data.cdc.gov/NCHS/Weekly-counts-of-deaths-by-jurisdiction-and-age-gr/y5bj-9g5w/
+#by jurisdiction of occurrence
+
+ny.age1 <- read.csv('./Data/nchs_age/Weekly_counts_of_deaths_by_jurisdiction_and_age_group.csv')
+ny.age1 <- ny.age1[ny.age1$State.Abbreviation=='YC' & ny.age1$Type=='Unweighted',]
+ny.age1 <- ny.age1[,c('Week.Ending.Date', 'Age.Group','Number.of.Deaths' )]
+ny.age1$Week.Ending.Date <- as.Date(ny.age1$Week.Ending.Date, '%m/%d/%Y')
+ny.age1$agegroup2 <- NA
+ny.age1$agegroup2[ny.age1$Age.Group %in% c('Under 25 years','25-44 years')] <- "00-44Y"
+ny.age1$agegroup2[ny.age1$Age.Group %in% c('45-64 years')] <- "45-64Y"
+ny.age1$agegroup2[ny.age1$Age.Group %in% c('65-74 years','75-84 years','85 years and older' )] <- "65+Y"
+ny.age1$state <- paste0('NYC_loc_death_', ny.age1$agegroup2)
+ny.age2 <- aggregate(ny.age1[,c('Number.of.Deaths'), drop=F],
+                     by=list('state'=ny.age1$state,'week_end'=ny.age1$Week.Ending.Date), FUN=sum)
+names(ny.age2) <-c('state','week_end','all_cause')
+
+```
+
+NYC data from DOHMH
+A)      All deaths that occurred within New York City, regardless of the decedent’s place of residence -- this includes both all NYC residents and persons who have residence outside of NYC; I believe this fits the definition for the data in your LEFT panel in Supp Fig B, and I think it should be very close to the data you’re showing currently in the figure.
+
+B)      All deaths that occurred in NYC among ONLY NYC residents – I believe this fits the definition for the data in your RIGHT panel in Supp Fig B for Mexico City; I believe the data you are currently showing in that panel for NYC includes all deaths that occurred in NYC among NYC residents and ALSO all deaths reported in other US states that were among NYC residents. I think this explains why the MXC deaths in the LEFT panel are greater than the MXC deaths in the RIGHT panel, while the NYC deaths in the LEFT are lower than in the RIGHT panel.
+```{r}
+
+nyc.dh.all <- read_excel('./Data/NYC_DOHMH/wkly_AC_3ages_res.xlsx', sheet='tot')
+nyc.dh.all.m <- melt(nyc.dh.all,id.vars=c('weekend', 'week'))
+nyc.dh.all.m$week <- NULL
+nyc.dh.all.m$state <- NA
+nyc.dh.all.m$state[nyc.dh.all.m$variable=='age1'] <-
+  'NYC_DOH_loc_00-44y'
+nyc.dh.all.m$state[nyc.dh.all.m$variable=='age2'] <-
+  'NYC_DOH_loc_45-64y'
+nyc.dh.all.m$state[nyc.dh.all.m$variable=='age3'] <-
+  'NYC_DOH_loc_65+Y'
+
+nyc.dh.all.m <- 
+  nyc.dh.all.m[,c('state','weekend','value')]
+
+names(nyc.dh.all.m) <- c('state', 'week_end', 'all_cause')
+
+nyc.dh.all.m.agg <- aggregate(nyc.dh.all.m[,'all_cause',drop=F], by=list('week_end'=nyc.dh.all.m$week_end), FUN=sum )
+
+nyc.dh.all.m.agg$state = 'NYC_DOH_loc_all_age'
+
+nyc.dh.all.m <- bind_rows(nyc.dh.all.m,nyc.dh.all.m.agg)
+
+#by location of residence
+nyc.dh.res <- read_excel('./Data/NYC_DOHMH/wkly_AC_3ages_res.xlsx', sheet='res')
+
+nyc.dh.res.m <- melt(nyc.dh.res,id.vars=c('weekend', 'week'))
+nyc.dh.res.m$week <- NULL
+nyc.dh.res.m$state <- NA
+nyc.dh.res.m$state[nyc.dh.res.m$variable=='age1'] <-
+  'NYC_DOH_res_00-44y'
+nyc.dh.res.m$state[nyc.dh.res.m$variable=='age2'] <-
+  'NYC_DOH_res_45-64y'
+nyc.dh.res.m$state[nyc.dh.res.m$variable=='age3'] <-
+  'NYC_DOH_res_65+Y'
+
+nyc.dh.res.m <- 
+  nyc.dh.res.m[,c('state','weekend','value')]
+
+names(nyc.dh.res.m) <- c('state', 'week_end', 'all_cause')
+
+nyc.dh.res.m.agg <- aggregate(nyc.dh.res.m[,'all_cause',drop=F], by=list('week_end'=nyc.dh.res.m$week_end), FUN=sum )
+
+nyc.dh.res.m.agg$state = 'NYC_DOH_res_all_age'
+
+nyc.dh.res.m <- bind_rows(nyc.dh.res.m,nyc.dh.res.m.agg)
+```
+
+
+Mexico data
+```{r}
+#this is same as the disaggregated data below
+
+# mx1 <- read.csv('./Data/Mx/cdmx_ts_format.csv')
+# mx1$state <- 'MXC_all'
+# mx1$DATE <- as.Date(mx1$DATE)
+# mx1$week_end <- floor_date(mx1$DATE, unit='week')+6
+# mx2 <- aggregate(mx1$DEATH, by=list('week_end'=mx1$week_end, 'state'=mx1$state), FUN=sum)
+# mx2 <- mx2[,c('state','week_end','x')]
+# names(mx2) <- c('state','week_end', 'all_cause')
+```
+
+Mexico, age stratified
+```{r}
+mx1.age <- read.csv('./Data/Mx/cdmx_age_ts_format.csv')
+mx1.age$state <- paste0('MXC_res_', mx1.age$agegrp)
+mx1.age <- mx1.age[mx1.age$RESIDENCY_STATE=='CDMX',]
+mx1.age$DATE <- as.Date(mx1.age$DATE)
+mx1.age$week_end <- floor_date(mx1.age$DATE, unit='week')+6
+mx2.age <- aggregate(mx1.age$DEATH, by=list('week_end'=mx1.age$week_end, 'state'=mx1.age$state), FUN=sum)
+mx2.age <- mx2.age[,c('state','week_end','x')]
+names(mx2.age) <- c('state','week_end', 'all_cause')
+
+```
+
+MX all ages, by residency
+```{r}
+mx1.all.res <- mx1.age
+mx1.all.res$state <- 'MXC_res'
+mx2.all.res <- aggregate(mx1.all.res$DEATH, by=list('week_end'=mx1.all.res$week_end,'state'=mx1.all.res$state), FUN=sum)
+mx2.all.res <- mx2.all.res[,c('state','week_end','x')]
+names(mx2.all.res) <- c('state','week_end', 'all_cause')
+```
+
+MX all ages, by loc of death
+```{r}
+mx1.all <- read.csv('./Data/Mx/cdmx_age_ts_format.csv')
+mx1.all$DATE <- as.Date(mx1.all$DATE)
+mx1.all$week_end <- floor_date(mx1.all$DATE, unit='week')+6
+mx1.all.loc <- mx1.all
+mx1.all.loc$state <- 'MXC_loc_death'
+mx2.all.loc <- aggregate(mx1.all.loc$DEATH, by=list('week_end'=mx1.all.loc$week_end,'state'=mx1.all.loc$state), FUN=sum)
+mx2.all.loc <- mx2.all.loc[,c('state','week_end','x')]
+names(mx2.all.loc) <- c('state','week_end', 'all_cause')
+```
+
+
+## Combine the datasets
+```{r}
+
+ds.comb <- rbind.data.frame(mx2.all.res,mx2.all.loc,mx2.age,nyc.nchs, nyc.fluview,ny.age2,nyc.dh.res.m,nyc.dh.all.m )
+ds.comb$one <- 1
+ds.comb <- ds.comb[ds.comb$week_end >= as.Date('2017-01-08') & ds.comb$week_end <= as.Date('2020-08-31') ,]
+
+ds.comb <- ds.comb[order(ds.comb$state, ds.comb$week_end),]
+```
+
+
+## run the model
+```{r}
+
+mod1 <- excessCases(ds.comb, 
+             statevar = "state",
+             datevar = "week_end", 
+             use.syndromes = c("all_cause"),
+            extrapolation.date = as.Date("2020-03-01"), 
+            sum.dates = as.Date("2020-03-01"),
+            denom.var = "one",
+            extend.epiyear =TRUE,
+            time.res='week',
+            model.type='negbin') 
+```
+ Extract output
+```{r}
+ds <- mod1
+dates1 <-
+  ds[[1]][[1]][[1]]$date
+  
+sum.obs.ac <-
+    excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "sum.obs")
+
+sum.obs.ac2 <- apply(sum.obs.ac,2, sum)
+
+denom.check <-
+    excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "denom")
+
+dispersion <-
+    excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "disp")
+
+##National data is created by summing state data
+sum.pred.iter.ac <-    
+  excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "sum.pred.iter")
+
+excess.grp <- matrix(NA, nrow=dim(sum.pred.iter.ac)[1], ncol=length(sum.obs.ac2))
+
+for(i in 1:length(sum.obs.ac2)){
+ excess.grp[,i] <-  sum.obs.ac2[i] - sum.pred.iter.ac[,i,1]
+}
+excess.grp.q <- t(apply(excess.grp,2, quantile, probs=c(0.025,0.5, 0.975)))
+excess.grp.q <- cbind.data.frame('group'=dimnames(sum.obs.ac)[[2]],excess.grp.q)
+
+ac.nat.obs <-    
+  excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "y")
+ac.nat.obs <- ac.nat.obs[,dimnames(ac.nat.obs)[[2]]!='US',1]
+
+pred.iter.ac <-    
+  excessExtract(ds = ds,
+                syndrome = 'all_cause',
+                extract.quantity = "pred.iter")
+
+pred.iter.ac2 <- array(pred.iter.ac,dim=c(length(dates1),10000,dim(pred.iter.ac)[2],1 ))
+
+dimnames(pred.iter.ac2)[[3]] <- dimnames(pred.iter.ac)[[2]]
+
+pred.ac.q <- apply(pred.iter.ac2, c(1,3), quantile, probs=c(0.025, 0.5, 0.975))
+
+
+#excessN.iter <- sum.pred.iter.ac
+
+```
+
+## Summary of excess deaths March 1-Aug 29
+```{r}
+excess.grp.q.rd <- excess.grp.q
+excess.grp.q.rd[,-1] <- apply(excess.grp.q[-1],2, function(x) round(x,-2))
+
+outtab1 <- paste0(excess.grp.q.rd[,3], ' (', excess.grp.q.rd[,2],', ', excess.grp.q.rd[,4],')' )
+outtab1 <- cbind.data.frame(excess.grp.q.rd[,1],outtab1)
+htmlTable(outtab1)
+```
+
+## Compare NYC and MXC, based on location of death
+```{r}
+plot(dates1,pred.ac.q['50%',,'MXC_loc_death'], bty='l',type='l', col='red', ylim=c(0, 8000), lty=2, ylab='Deaths(N)')
+polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,'MXC_loc_death'], rev(pred.ac.q['97.5%',,'MXC_loc_death'])),border=NA, col=rgb(1,0,0,alpha=0.2) )
+points(dates1, ac.nat.obs[,'MXC_loc_death'], type='l', col='red')
+
+#Overlay NYC
+polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,"NYC_DOH_loc_all_age"], rev(pred.ac.q['97.5%',,"NYC_DOH_loc_all_age"])),border=NA, col=rgb(0,0,1,alpha=0.2) )
+points(dates1, ac.nat.obs[,"NYC_DOH_loc_all_age"], type='l', col='blue')
+points(dates1, pred.ac.q['50%',,"NYC_DOH_loc_all_age"], col='blue', lty=2, type='l')
+
+```
+
+## Compare NYC and MXC, based on residence.
+Important note: for NYC, if someone dies in another state but is resident in NYC, it will get added to NYC total. Not sure if same is true in MX data
+```{r}
+plot(dates1,pred.ac.q['50%',,'MXC_res'], bty='l',type='l', col='red', ylim=c(0, 8000), lty=2, ylab='Deaths(N)')
+polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,'MXC_res'], rev(pred.ac.q['97.5%',,'MXC_res'])),border=NA, col=rgb(1,0,0,alpha=0.2) )
+points(dates1, ac.nat.obs[,'MXC_res'], type='l', col='red')
+
+#Overlay NYC
+polygon(c(dates1, rev(dates1)), c(pred.ac.q['2.5%',,"NYC_DOH_res_all_age"], rev(pred.ac.q['97.5%',,"NYC_DOH_res_all_age"])),border=NA, col=rgb(0,0,1,alpha=0.2) )
+points(dates1, ac.nat.obs[,"NYC_DOH_res_all_age"], type='l', col='blue')
+points(dates1, pred.ac.q['50%',,"NYC_DOH_res_all_age"], col='blue', lty=2, type='l')
+
+```
+
+## Compare NCHS and NYCDOHMH
+```{r, fig.width=8,fig.height=3}
+
+par(mfrow=c(1,2))
+plot(ac.nat.obs[,"NYC_DOH_res_all_age"], col='red', type='l', bty='l', main='Loc Residence')
+points(ac.nat.obs[,"NYC_loc_res"], col='blue', type='l')
+
+
+plot(ac.nat.obs[,"NYC_DOH_loc_all_age"], col=rgb(1,0,0,alpha=0.5), type='l', bty='l', lty=2, main='Loc Death')
+points(ac.nat.obs[,"NYC_loc_death"], col=rgb(0,0,1,alpha=0.5), type='l', lty=2)
+
+```
+
+
+
+## reshap to year*week
+```{r}
+
+mmw1 <- MMWRweek(ds.comb$week_end)
+ds.comb <- cbind.data.frame(ds.comb, mmw1)
+
+obs.m <- melt(ds.comb[,c('state', 'all_cause',"MMWRyear", "MMWRweek")], id.vars =c('state', "MMWRyear", "MMWRweek") )
+obs.c <- acast(obs.m, state ~  MMWRyear ~ MMWRweek )
+
+obs.c.out <- dcast(obs.m,   MMWRyear + MMWRweek ~state)
+write.csv(obs.c.out, './Data/formatted.csv' )
+```
+
+
+```{r}
+col1 <- '#e41a1c'
+col1.t <- '#e41a1c4D'
+col2 <- '#377eb8'
+col2.t <- '#377eb84D'
+```
+
+Panels
+```{r}
+
+par(mfrow=c(2,2))
+
+groups.to.test<- list(
+  c('MXC_res', 'NYC_DOH_res_all_age'),
+  c('MXC_res_00-44Y', 'NYC_DOH_res_00-44y'),
+  c('MXC_res_45-64Y', 'NYC_DOH_res_45-64y'),
+  c('MXC_res_65+Y', 'NYC_DOH_res_65+Y')
+)
+
+lab1 <- c('All ages','0-44y','45-64y','65+y')
+
+denoms <- list(
+  c(9031213,8398748),
+  c(5872023,5096607),
+  c(2194170,2056048),
+  c(965020,1246093)
+)
+
+#Panel A
+
+for(i in c(1:4)){
+  yrange <- range( c(obs.c[groups.to.test[[i]][1],c('2020'),]/denoms[[i]][1]*100000, obs.c[groups.to.test[[i]][2],c('2020'),]/denoms[[i]][2]*100000), na.rm=T )
+matplot(t(obs.c[groups.to.test[[i]][1],c('2017','2018','2019'),])/denoms[[i]][1]*100000, bty='l',type='l', col=col1.t, 
+        ylim=c(0, yrange[2]),
+        xlim=c(1,35),
+        lty=1, ylab='Deaths/100,000', main=lab1[i])
+points(obs.c[groups.to.test[[i]][1],c('2020'),]/denoms[[i]][1]*100000, type='l', col=col1, lty=1, lwd=2)
+
+matplot(t(obs.c[groups.to.test[[i]][2],c('2017','2018','2019'),])/denoms[[i]][2]*100000, bty='l',type='l', col=col2.t,  lty=1,  add=T)
+points(obs.c[groups.to.test[[i]][2],c('2020'),]/denoms[[i]][2]*100000, type='l', col=col2, lty=1, lwd=2)
+
+}
+
+
+
+```
+
+
+
+
+
