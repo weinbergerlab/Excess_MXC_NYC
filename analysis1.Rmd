@@ -210,15 +210,17 @@ A)      All deaths that occurred within New York City, regardless of the deceden
 B)      All deaths that occurred in NYC among ONLY NYC residents – I believe this fits the definition for the data in your RIGHT panel in Supp Fig B for Mexico City; I believe the data you are currently showing in that panel for NYC includes all deaths that occurred in NYC among NYC residents and ALSO all deaths reported in other US states that were among NYC residents. I think this explains why the MXC deaths in the LEFT panel are greater than the MXC deaths in the RIGHT panel, while the NYC deaths in the LEFT are lower than in the RIGHT panel.
 ```{r}
 
-nyc.dh.all <- read_excel('./Data/NYC_DOHMH/wkly_AC_3ages_res.xlsx', sheet='tot')
+nyc.dh.all <- read_excel('./Data/NYC_DOHMH/wkly_AC_4ages_20210325.xlsx', sheet='tot')
 nyc.dh.all.m <- melt(nyc.dh.all,id.vars=c('weekend', 'week'))
 nyc.dh.all.m$week <- NULL
 nyc.dh.all.m$state <- NA
 nyc.dh.all.m$state[nyc.dh.all.m$variable=='age1'] <-
-  'NYC_DOH_loc_00-44y'
+  'NYC_DOH_loc_<25Y'
 nyc.dh.all.m$state[nyc.dh.all.m$variable=='age2'] <-
-  'NYC_DOH_loc_45-64y'
+  'NYC_DOH_loc_25-44y'
 nyc.dh.all.m$state[nyc.dh.all.m$variable=='age3'] <-
+  'NYC_DOH_loc_45-64y'
+nyc.dh.all.m$state[nyc.dh.all.m$variable=='age4'] <-
   'NYC_DOH_loc_65+Y'
 
 nyc.dh.all.m <- 
@@ -233,16 +235,18 @@ nyc.dh.all.m.agg$state = 'NYC_DOH_loc_all_age'
 nyc.dh.all.m <- bind_rows(nyc.dh.all.m,nyc.dh.all.m.agg)
 
 #by location of residence
-nyc.dh.res <- read_excel('./Data/NYC_DOHMH/wkly_AC_3ages_res.xlsx', sheet='res')
+nyc.dh.res <- read_excel('./Data/NYC_DOHMH/wkly_AC_4ages_20210325.xlsx', sheet='res')
 
 nyc.dh.res.m <- melt(nyc.dh.res,id.vars=c('weekend', 'week'))
 nyc.dh.res.m$week <- NULL
 nyc.dh.res.m$state <- NA
 nyc.dh.res.m$state[nyc.dh.res.m$variable=='age1'] <-
-  'NYC_DOH_res_00-44y'
+  'NYC_DOH_res_<25Y'
 nyc.dh.res.m$state[nyc.dh.res.m$variable=='age2'] <-
-  'NYC_DOH_res_45-64y'
+  'NYC_DOH_res_25-44y'
 nyc.dh.res.m$state[nyc.dh.res.m$variable=='age3'] <-
+  'NYC_DOH_res_45-64y'
+nyc.dh.res.m$state[nyc.dh.res.m$variable=='age4'] <-
   'NYC_DOH_res_65+Y'
 
 nyc.dh.res.m <- 
@@ -268,12 +272,12 @@ Mexico data
 # mx1$week_end <- floor_date(mx1$DATE, unit='week')+6
 # mx2 <- aggregate(mx1$DEATH, by=list('week_end'=mx1$week_end, 'state'=mx1$state), FUN=sum)
 # mx2 <- mx2[,c('state','week_end','x')]
-# names(mx2) <- c('state','week_end', 'all_cause')
+#  names(mx2) <- c('state','week_end', 'all_cause')
 ```
 
 Mexico, age stratified
 ```{r}
-mx1.age <- read.csv('./Data/Mx/cdmx_age_ts_format.csv')
+mx1.age <- read.csv('./Data/Mx/cdmxAgeCat.csv')
 mx1.age$state <- paste0('MXC_res_', mx1.age$agegrp)
 mx1.age <- mx1.age[mx1.age$RESIDENCY_STATE=='CDMX',]
 mx1.age$DATE <- as.Date(mx1.age$DATE)
@@ -492,29 +496,31 @@ col2.t <- '#377eb84D'
 ```
 
 Panels
-```{r main.fig, fig.width=6,fig.height=4}
+```{r main.fig, fig.width=11,fig.height=2.5}
 
-par(mfrow=c(2,2))
+par(mfrow=c(1,5))
 
 groups.to.test<- list(
   c('MXC_res', 'NYC_DOH_res_all_age'),
-  c('MXC_res_00-44Y', 'NYC_DOH_res_00-44y'),
-  c('MXC_res_45-64Y', 'NYC_DOH_res_45-64y'),
+  c('MXC_res_<25Y', 'NYC_DOH_res_<25Y'),
+  c("MXC_res_25-44Y", 'NYC_DOH_res_25-44y'),
+    c('MXC_res_45-64Y', 'NYC_DOH_res_45-64y'),
   c('MXC_res_65+Y', 'NYC_DOH_res_65+Y')
 )
 
-lab1 <- c('All ages','0-44y','45-64y','65+y')
+lab1 <- c('All ages','0-24y','25-44y', '45-64y','65+y')
 
 denoms <- list(
-  c(9031213,8398748),
-  c(5872023,5096607),
-  c(2194170,2056048),
-  c(965020,1246093)
+  c(9041395,8398748),
+  c(3089216, 2450492),
+  c(2854952, 2646115),
+  c(2163125,2056048),
+  c(934102,1246093)
 )
 
 #Panel A
 
-for(i in c(1:4)){
+for(i in c(1:5)){
   yrange <- range( c(obs.c[groups.to.test[[i]][1],c('2020'),]/denoms[[i]][1]*100000, obs.c[groups.to.test[[i]][2],c('2020'),]/denoms[[i]][2]*100000), na.rm=T )
 matplot(t(obs.c[groups.to.test[[i]][1],c('2017','2018','2019'),])/denoms[[i]][1]*100000, bty='l',type='l', col=col1.t, 
         ylim=c(0, yrange[2]),
